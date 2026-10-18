@@ -9,6 +9,7 @@ minibatch_size: 128
 critic_warmup_steps: 256
 aux_weight: 0.1
 aux_batch: 64
+ref_kl_coef: 0.5
 replay_data: data/smoke
 curriculum: [L1, L2, L3, L4, L5]
 episode_frame_cap: 600

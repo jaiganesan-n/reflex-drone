@@ -1,6 +1,6 @@
 """Optional practice: PPO fine-tuning of Arc in the real env (CleanRL style, one file).
 
-    uv run python -m train.ppo --config configs/train/ppo.yaml --init runs/arc_B/best.pt --run arc_C [--time-budget-min 180]
+    uv run python -m train.ppo --config configs/train/ppo.yaml --init runs/arc_B/best.pt --run arc_ppo [--time-budget-min 180]
 
 * 8 envs in ``gymnasium.vector.AsyncVectorEnv`` (spawn). Each env resets itself at the end of
   an episode (fresh TRAIN seed, current curriculum level) and reports the episode in ``info``.
@@ -35,6 +35,10 @@
 * ``aux_mask_needless_bursts``: on replayed teacher frames where HOLD, ASCEND or DESCEND is safe
   (the stored ``safe`` labels), the aux KL target drops the teacher's JUMP/DUCK probability
   (renormalized), so the anchor stops pulling needless bursts back in.
+* ``ref_kl_coef`` > 0: + coef * KL(policy || starting policy) on the states PPO itself flies, both at
+  ``policy_temperature`` (the starting policy is ``--init``, frozen). The aux anchor's soft teacher
+  labels barely tell "start climbing now" from "hold a little longer", so on its own it never kept
+  the start's timing; this anchor does, and PPO moves away from it only where the reward says so.
 * best.pt = best online ratio on 10 VAL seeds of ``gate_level`` (or the mean over
   ``select_levels``), checked every ``eval_every`` updates and once for the initial model; with
   ``select_after`` > 0 only updates from then on can become best.pt (the final model if none did).
@@ -75,7 +79,7 @@ PPO_DEFAULTS = {
     "clearance_bonus": 0.0, "clearance_cap_m": 2.0, "change_penalty": 0.0, "burst_penalty": 0.0,
     "target_change_penalty": 0.0, "vertical_speed_penalty": 0.0, "needless_burst_penalty": 0.0,
     "slow_burst_penalty": 0.0, "needless_safe_frames": 0, "teacher_config": None,
-    "path_bonus": 0.0, "path_horizon_s": 1.2,
+    "path_bonus": 0.0, "path_horizon_s": 1.2, "ref_kl_coef": 0.0,
 }
 SHAPING_KEYS = ("clearance_bonus", "clearance_cap_m", "change_penalty", "burst_penalty", "target_change_penalty",
                 "vertical_speed_penalty", "needless_burst_penalty", "slow_burst_penalty", "needless_safe_frames",
@@ -205,6 +209,15 @@ def mask_needless_bursts(p_teacher, safe):
     return q / q.sum(-1, keepdim=True).clamp_min(1e-12)
 
 
+def ref_kl(logits, ref_logp, avail, temperature: float = 1.0):
+    """Mean KL(softmax(logits / T) || exp(ref_logp)) over the available actions (masked ones add 0
+    and get no gradient). ``ref_logp`` is the frozen starting policy's log_softmax(logits / T)."""
+    import torch
+    logp = torch.log_softmax(logits / temperature, -1).masked_fill(~avail, 0.0)
+    p = logp.exp() * avail
+    return (p * (logp - ref_logp.masked_fill(~avail, 0.0))).sum(-1).mean()
+
+
 def _make_env(index, seed, split, frame_cap, level, level_mix=None, shaping=None, teacher_config=None):
     return CurriculumEnv(index, seed, split, frame_cap, level, level_mix, shaping, teacher_config)
 
@@ -250,6 +263,13 @@ def train_ppo(cfg: dict, init: str, run_name: str) -> dict:
         raise SystemExit("PPO fine-tunes an Arc checkpoint")
     device = torch.device("cpu" if cfg["device"] in ("auto", "cpu") else cfg["device"])
     model.to(device).train()
+    ref = None
+    if float(cfg["ref_kl_coef"]) > 0:
+        ref, _ = load_checkpoint(init)
+        ref.to(device).eval()
+        for p in ref.parameters():
+            p.requires_grad_(False)
+        print(f"[ppo] anchor: {cfg['ref_kl_coef']} x KL(policy || {init}) on its own states", flush=True)
     act_desc = torch.from_numpy(action_descriptors())
     replay = FrameData(as_list(cfg["replay_data"])) if float(cfg["aux_weight"]) > 0 else None
     mix = dict(cfg["level_mix"]) if cfg["level_mix"] else None
@@ -354,11 +374,16 @@ def train_ppo(cfg: dict, init: str, run_name: str) -> dict:
         ADV = adv.reshape(-1)
         RET = ret.reshape(-1)
         warm = global_step <= int(cfg["critic_warmup_steps"])
+        n = A.shape[0]
+        mb = int(cfg["minibatch_size"])
+        REF = None
+        if ref is not None and not warm:
+            with torch.no_grad():
+                REF = torch.cat([torch.log_softmax(policy_outputs(ref, "arc", {k: flat[k][s0:s0 + mb] for k in keys})
+                                                   ["logits"] / pi_T, -1) for s0 in range(0, n, mb)])
         for name, p in model.named_parameters():
             p.requires_grad_(not warm or name.startswith("value."))
         model.train()
-        n = A.shape[0]
-        mb = int(cfg["minibatch_size"])
         stats = collections.defaultdict(float)
         nmb = 0
         for _ in range(int(cfg["update_epochs"])):
@@ -386,6 +411,10 @@ def train_ppo(cfg: dict, init: str, run_name: str) -> dict:
                     stats["pg"] += float(pg)
                     stats["entropy"] += float(ent)
                     stats["clipfrac"] += float(((ratio - 1).abs() > clip).float().mean())
+                    if REF is not None:
+                        rkl = ref_kl(out["logits"], REF[idx], b["act_avail"], pi_T)
+                        loss = loss + float(cfg["ref_kl_coef"]) * rkl
+                        stats["ref_kl"] += float(rkl)
                     if replay is not None:
                         ridx = replay.train_idx[torch.randint(len(replay.train_idx), (int(cfg["aux_batch"]),))]
                         rb = replay.batch(ridx, device)
@@ -421,7 +450,9 @@ def train_ppo(cfg: dict, init: str, run_name: str) -> dict:
         print(f"[ppo] update {update} step {global_step:,} {'(critic warm-up) ' if warm else ''}{where}  "
               f"clear {es[0]:.2f} m, {es[1]:.2f} changes/s, {es[2]:.1f} bursts/min"
               + (f" ({needless_share:.0%} needless)" if shaping["needless_burst_penalty"] else "")
-              + f", HOLD {es[5]:.0%}  {row['steps_per_s']:.0f} steps/s",
+              + f", HOLD {es[5]:.0%}"
+              + (f", KL to start {row['ref_kl']:.3f}" if "ref_kl" in row else "")
+              + f"  {row['steps_per_s']:.0f} steps/s",
               flush=True)
         # curriculum
         if (not mix and len(rolling) >= max(4, int(cfg["rolling_episodes"]) // 2) and lvl_i < len(levels) - 1

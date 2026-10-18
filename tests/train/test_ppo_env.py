@@ -165,3 +165,23 @@ def test_path_bonus_pays_for_a_clear_level_path_ahead():
         s.place_static(C.BUILDING, nose + 8.0, nose + 10.0, 0.0, C.CEILING - 0.5)
     d1 = env.step(0)[1] - plain.step(0)[1]
     assert d1 == pytest.approx(0.01 * env.env.sim.path_time(1.2, 0.3) / 1.2) and 0.0 < d1 < 0.009
+
+
+def test_anchor_kl_to_the_starting_policy():
+    """ref_kl: 0 for the starting policy itself, > 0 once it moves, masked actions add nothing and
+    get a finite (zero) gradient."""
+    import torch
+    from train.ppo import ref_kl
+    avail = torch.tensor([[True, True, True, False, False], [True, True, True, True, True]])
+    start = torch.tensor([[2.0, 0.0, -1.0, 0.0, 0.0], [0.5, 0.1, -0.3, -2.0, 1.0]]).masked_fill(~avail, float("-inf"))
+    ref_logp = torch.log_softmax(start / 0.32, -1)
+    assert float(ref_kl(start, ref_logp, avail, 0.32)) == pytest.approx(0.0, abs=1e-6)
+    moved = start.clone().requires_grad_(True)
+    with torch.no_grad():
+        moved[:, 1] += 1.0
+    kl = ref_kl(moved, ref_logp, avail, 0.32)
+    kl.backward()
+    p = torch.softmax(moved.detach() / 0.32, -1)
+    want = (p * (torch.log_softmax(moved.detach() / 0.32, -1) - ref_logp)).nan_to_num(0.0).sum(-1).mean()
+    assert float(kl) == pytest.approx(float(want)) and float(kl) > 0.1
+    assert torch.isfinite(moved.grad).all() and (moved.grad[0, 3:] == 0).all()
