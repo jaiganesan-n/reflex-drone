@@ -1,0 +1,18 @@
+# Smoke: 1 epoch of the arc config on data/smoke (SPEC §14 isolation).
+arch: arc
+model: {d: 64, heads: 4, enc_layers: 2, head_layers: 1}
+data: data/smoke
+stage: supervised
+epochs: 1
+batch_size: 512
+lr: 3.0e-4
+weight_decay: 0.01
+schedule: cosine
+warmup_frac: 0.05
+device: auto
+gate_level: L3
+online_seeds: 2
+eval_frame_cap: 600
+final_val_seeds: 2
+planner_cache_dir: reports/smoke
+workers: 2

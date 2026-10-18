@@ -1,0 +1,172 @@
+# DroneDash physics, hazard and generator constants (SPEC v2.3 §2–3).
+# Units: metres, seconds. Changing this file changes the game; planner caches hash it.
+
+sim:
+  fps: 30                    # dt = 1/30 s
+
+world:
+  width_m: 26.0              # visible world width (SPEC v2.3: 24 -> 26 m, so the window shows the whole 20 m sensor range)
+  height_m: 10.0             # ground at y = 0, sky ceiling at y = 10
+  drone_x_m: 4.0             # drone centre x, measured from the left screen edge
+
+drone:
+  hitbox_w: 0.9
+  hitbox_h: 0.35
+  tuck_scale: 0.6            # tucked hitbox height = 0.35 * 0.6
+  start_y: 4.0               # hitbox centre
+  start_vy: 0.0
+
+speed:
+  # Each level has its own speed (configs/levels.yaml). SPEC v2.3: L1 10, L2-L5 12 m/s (was 8-16).
+  surge_mult: 1.3
+  surge_s: 3.0
+
+control:
+  gain: 8.0                  # a_ctrl = clip(gain * (v_target - vy), -a_max, a_max)
+  a_max: 12.0
+  v_hold: 0.0
+  v_ascend: 3.0
+  v_descend: -3.0
+  jump_v: 6.0                # JUMP: vy = +6 at once, v_target = +6 during the burst
+  jump_burst_frames: 9       # 0.3 s
+  jump_cooldown_frames: 30   # 1.0 s from the start of a JUMP or a DUCK (one shared cooldown)
+  duck_v: -6.0               # DUCK = dive (SPEC v1.7): vy = -6 at once, v_target = -6 during the burst
+  duck_burst_frames: 9       # 0.3 s, hitbox tucked for the whole dive
+
+hazards:
+  building:  {width: [1.5, 3.0], height: [2.0, 7.0]}
+  mountain:  {base: [6.0, 12.0], peak: [3.0, 6.5]}
+  bird:
+    size: [0.5, 0.3]         # w, h
+    flock: [1, 3]
+    altitude: [3.0, 9.0]     # base altitude of the sine path (centre)
+    amplitude: [0.5, 1.5]
+    period_s: [1.0, 2.0]
+    own_speed: [1.0, 3.0]    # toward the drone
+    spacing_x: [0.7, 1.4]    # flock member spacing
+    spread_y: 0.6            # flock member altitude spread (+/-)
+    # SPEC v2.3: less predictable birds. The swing's rhythm wanders (its phase is pushed ahead and
+    # back by up to rhythm_change radians, over rhythm_period_s), and some birds make a short sudden
+    # dive (or pop up) once every dive_every_s seconds.
+    rhythm_change: [0.2, 0.5]
+    rhythm_period_s: [4.0, 8.0]
+    dive_prob: 0.3
+    dive_depth: [0.4, 0.8]
+    dive_up_prob: 0.3        # share of the divers that pop up instead
+    dive_every_s: [4.0, 8.0]
+  traffic:
+    drone_size: [1.0, 0.4]
+    balloon_size: [1.2, 1.6]
+    balloon_prob: 0.5
+    altitude: [3.0, 9.0]     # centre
+    own_speed: [-2.0, 4.0]   # positive = coming toward the drone
+    drift_amplitude: [0.3, 0.6]   # SPEC v2.1: a slow up-and-down drift instead of dead-level flight (m)
+    drift_period_s: [2.0, 4.0]    # one full up-and-down cycle
+    rhythm_change: [0.2, 0.5]     # SPEC v2.3: the drift's rhythm wanders too (as for birds)
+    rhythm_period_s: [4.0, 8.0]
+  storm:
+    width: [4.0, 8.0]
+    lowest: [6.5, 8.5]       # lowest point of the ceiling dip
+    ramp_frac: 0.25          # trapezoid: each side ramp = 25% of width, flat bottom 50%
+  downdraft:
+    width: [3.0, 6.0]
+    accel: -3.0              # m/s^2 inside the zone
+  plane:                     # SPEC v1.7: level flight toward the drone, hitbox = whole side view
+    jet_size: [[4.5, 5.5], 1.0]     # w range, h (fuselage + tail fin)
+    prop_size: [[3.0, 3.6], 0.8]    # small propeller plane
+    prop_prob: 0.4
+    altitude: [8.0, 9.5]     # centre of the hitbox; SPEC v1.9: planes fly high, above the drone (was 3.5-9.0)
+    own_speed: [4.0, 8.0]    # toward the drone, m/s (closing speed = scroll speed + this)
+    x_slack_s: 0.35          # extra footprint x margin per m/s of own speed (arrival-time slack)
+  # SPEC v2.0: real-life obstacles for a drone flying along a road (mountains and planes retired:
+  # levels.yaml gives them weight 0; their code stays for old tests). Built from boxes and thin
+  # wires; each blocks one height band at every x, like the hazards above.
+  tree:                      # 1-3 trees in a group, canopies overlapping; the trunk blocks under the canopy
+    count: [1, 3]
+    height: [3.5, 7.0]       # top of the canopy
+    canopy_width: [2.2, 4.0]
+    canopy_bottom: [0.30, 0.45]   # canopy bottom as a share of the height
+    trunk_width: [0.35, 0.5]
+    step: [0.55, 0.85]       # next tree starts this share of the canopy width further on
+  pole:                      # street lights: a row of 1-3 poles of one height, lamp arm at the top
+    count: [1, 3]
+    height: [4.5, 7.0]
+    spacing: [4.0, 7.0]
+    width: 0.2
+    arm: 0.9                 # lamp arm length (points toward or away from the drone)
+    arm_thickness: 0.15
+    lamp: [0.35, 0.25]       # lamp head w, h at the end of the arm
+  powerline:                 # wires running along the road between two poles (poles beside the road)
+    span: [10.0, 20.0]
+    height: [5.5, 8.5]       # where the top wire meets the poles
+    sag: [0.4, 1.2]          # lowest point of a wire, below its ends
+    wire_gap: 0.5            # second wire this far below the top one
+    wire_r: 0.04             # half thickness of a wire
+  kite:                      # a kite on a string to a ground anchor ahead of or behind it
+    height: [4.0, 6.5]       # centre of the kite (7.5 m was refused by the passability checks 2-3x too often at L3-L5)
+    size: [0.8, 1.0]         # w, h of the kite
+    tail: 0.4                # tail below the kite; outline, tail and string are thin wires (the hitbox)
+    anchor_dx: [3.0, 6.0]    # anchor this far ahead of or behind the kite
+    string_r: 0.03
+  crane:                     # tower crane beside the road: its arm (jib) reaches over the road with a hook
+    jib_height: [6.0, 8.0]   # underside of the jib
+    jib_thickness: 0.45
+    jib_length: [8.0, 14.0]  # over the road
+    hook_bottom: [3.0, 5.0]
+    hook_size: [0.5, 0.6]    # w, h of the hook block
+    hook_at: [0.2, 0.6]      # hook trolley position along the jib (share of its length)
+    cable_r: 0.03
+
+interruptions:
+  # gust strength is per level (levels.yaml gust_accel); L5 and stress use SPEC's U(4, 8)
+  gust_s: [0.5, 2.0]
+  fog_s: [5.0, 10.0]
+
+sensors:
+  range_m: 20.0              # SPEC v2.3: 16 -> 20 m (rays and the hazard list)
+  fog_range_m: 8.0
+  fog_noise: 0.03            # sigma, normalized ray units
+  n_rays: 13
+  ray_min_deg: -60.0
+  ray_max_deg: 60.0
+  max_hazards: 12
+  # SPEC v2.3 object tracker (drone_env/tracker.py): per bird / drone / balloon / plane, only what the
+  # sensors have seen of it so far. Its prediction margins are calibrated on simulated sightings
+  # (scripts/calibrate_tracker.py -> configs/tracker.yaml).
+  tracker:
+    keep_s: 1.5              # the fit uses the last 1.5 s of sightings
+    min_fit_samples: 4       # below this, the last height seen
+    watched_norm_s: 2.0      # hazard row "watched" = seconds watched / 2, capped at 1
+    window_points: 5         # predicted band = fit evaluated at 5 times across the pass window
+    # calibrated margins cover this share of the misses seen in calibration, by how far ahead the
+    # pass window ends (< 0.2, 0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2 s, more): strict near contact, where a
+    # miss cannot be fixed; looser far ahead, where the teacher replans every frame as the band narrows
+    quantile_by_ahead: [0.99, 0.99, 0.97, 0.95, 0.92, 0.9, 0.9, 0.9, 0.9]
+
+generator:
+  lookahead_m: 40.0          # world generated at least this far ahead of the drone
+  batch_m: 30.0              # extra distance generated per refill (hysteresis)
+  clone_lookahead_m: 25.0    # planner clones only refill below this (>= sensor range)
+  start_clear_s: 4.0         # empty run-up before the first obstacle, in seconds of flight
+  min_gap_s: 0.9             # gap between obstacle starts >= v * 0.9 s (endless L5+ may go to 0.6 s)
+  corridor_min_m: 1.2        # every x needs a free vertical gap >= 1.2 m
+  climb_rate: 3.0            # m/s used by the passability check
+  downdraft_climb_rate: 2.5  # m/s climb inside a downdraft zone
+  check_dx_m: 0.5            # passability sweep resolution
+  mover_x_margin_m: 1.5      # extra x footprint for moving hazards (arrival-time slack)
+  edge_margin_m: 0.05        # extra vertical margin around blocked bands
+  max_tries: 25              # resamples per obstacle before inserting an empty gap
+  robust: true               # reflex-fair "consecutive corridors": the next obstacle must be
+  robust_half_band_m: 1.0    #   passable from the middle +/- 1 m of the previous obstacle's corridor
+  # SPEC v1.7 reflex checks for moving hazards (birds, traffic, planes):
+  #  * a mover must also be passable from that band at the moment it comes into sensor range
+  #    (the pilot cannot react to what it cannot see);
+  #  * a plane must be escapable with real physics by one reflex (JUMP or DUCK, alone or followed
+  #    by ASCEND/DESCEND, now or after a short wait, or plain ASCEND/DESCEND/HOLD) from every
+  #    sampled altitude of that band and vertical speed, after a reaction delay, and the drone must
+  #    still be able to fly on afterwards;
+  #  * planes are spaced so the shared JUMP/DUCK cooldown is always ready for the next one.
+  reaction_frames: 2         # frames between first sight and the first reflex (escape check)
+  escape_vy: [-1.5, 0.0, 1.5]   # vertical speeds sampled at first sight (escape check)
+  escape_waits: [0, 5]       # frames to wait before a JUMP/DUCK reflex (escape check)
+  plane_spacing_s: 1.1       # min time between the first sightings of two planes (>= cooldown)

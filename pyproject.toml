@@ -1,0 +1,30 @@
+[project]
+name = "reflex-drone"
+version = "0.1.0"
+description = "DroneDash: a Chrome-Dino-style side-scroller where a drone flies itself (Project J'AI 2 / Reflex Drone)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium>=1.4.0",
+    "numpy>=2.4.6",
+    "onnx>=1.23.2",
+    "onnxruntime>=1.31.0",
+    "onnxscript>=0.7.2",
+    "pygame-ce>=2.5.8",
+    "pyyaml>=6.0.3",
+    # Linux aarch64 (e.g. a Linux VM on the Mac): torch >= 2.11 on PyPI pulls ~3 GB of CUDA
+    # libraries there, so stay on the last CPU-only aarch64 wheel. macOS gets the current torch.
+    "torch>=2.10.0,<2.11; sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "torch>=2.14.1; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    "tqdm>=4.70.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"

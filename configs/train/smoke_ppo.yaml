@@ -1,0 +1,24 @@
+# Smoke PPO: toy size, VAL seeds, replay from data/smoke, writes runs/smoke_ppo (SPEC §14).
+num_envs: 2
+steps_per_env: 128
+lr: 1.0e-4
+clip: 0.1
+ent_coef: 0.005
+update_epochs: 2
+minibatch_size: 128
+critic_warmup_steps: 256
+aux_weight: 0.1
+aux_batch: 64
+replay_data: data/smoke
+curriculum: [L1, L2, L3, L4, L5]
+episode_frame_cap: 600
+seeds: val
+eval_every: 3
+gate_level: L5
+online_seeds: 2
+eval_frame_cap: 600
+final_val_seeds: 2
+planner_cache_dir: reports/smoke
+workers: 2
+time_budget_min: 2
+device: cpu

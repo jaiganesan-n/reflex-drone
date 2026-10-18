@@ -1,0 +1,25 @@
+# arc, supervised stage (run arc_A): learns the teacher's choices on data/teacher. 13-value hazard rows (the body
+# now + the object tracker's watched time, seen band and predicted band); 5 derived inputs per hazard (time to
+# contact, climb / descent to the predicted band, slack of a slow move); feed-forward layers 4 x d (179,847 weights;
+# 2 x d flew 7% less far on L3 VAL).
+arch: arc
+model: {d: 64, heads: 4, enc_layers: 2, head_layers: 1, ttc_features: true, haz_cols: 13, ffn_mult: 4}   # SPEC §13 + 5 derived inputs per hazard
+burst_weight: 3.0         # JUMP/DUCK are ~0.2% of the labels; x3 so the last-moment bursts are learned
+data: data/teacher
+stage: supervised
+epochs: 15
+batch_size: 512
+lr: 3.0e-4
+weight_decay: 0.01
+schedule: cosine
+warmup_frac: 0.05
+grad_clip: 1.0
+loss: {kl: 1.0, safe: 0.5, threat: 0.25, hard: 0.5}   # hard: CE on the teacher's chosen action (train/common.py); soft labels alone tie "climb now" and "hold"
+device: auto               # auto = MPS if it is faster in a quick benchmark, else CPU
+threads: 0                 # 0 = all cores
+gate_level: L3
+online_seeds: 10           # per-epoch check on the first 10 VAL seeds of gate_level
+eval_frame_cap: 6000
+final_val_seeds: 50        # summary.json val_ratio on all 50 VAL seeds
+planner_cache_dir: reports
+workers: 6                 # for computing missing planner-cache entries

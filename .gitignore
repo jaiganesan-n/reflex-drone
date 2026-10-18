@@ -1,0 +1,9 @@
+runs/
+data/*/
+artifacts/
+reports/*.json
+__pycache__/
+
+# earlier training (owner, 18 Oct 2026): logs, old commits (bundle) and configs; kept locally, not tracked
+archive/
+.DS_Store

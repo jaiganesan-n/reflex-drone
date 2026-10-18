@@ -1,0 +1,30 @@
+# Optional PPO practice (run arc_C; gate G5 reads val_ratio on L5).
+num_envs: 8
+steps_per_env: 1024
+lr: 1.0e-4
+clip: 0.1
+ent_coef: 0.005
+vf_coef: 0.5
+gamma: 0.99
+gae_lambda: 0.95
+update_epochs: 4
+minibatch_size: 1024
+max_grad_norm: 0.5
+critic_warmup_steps: 50000     # actor frozen, value head only
+aux_weight: 0.1                # supervised contract losses on replayed teacher frames
+aux_batch: 256
+replay_data: data/teacher
+curriculum: [L4, L5]           # session 3, owner decision (was [L1, L2, L3, L4, L5]: 75 min on L1-L2, L5 online fell 0.27 -> ~0.13)
+advance_frac: 0.8              # move up at 80% of the level's planner mean distance
+rolling_episodes: 20
+episode_frame_cap: 6000
+seeds: train
+eval_every: 10                 # updates between online checks (10 L5 VAL seeds)
+gate_level: L5
+online_seeds: 10
+eval_frame_cap: 6000
+final_val_seeds: 50
+planner_cache_dir: reports
+workers: 6
+time_budget_min: 180           # --time-budget-min overrides
+device: mps                    # session 3: measured 905 vs 770 env steps/s on CPU (M5, after critic warm-up)

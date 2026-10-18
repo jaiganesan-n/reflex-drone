@@ -1,0 +1,20 @@
+# arc, DAgger stage (run arc_B): the student from arc_A flies, the teacher labels the states the student reaches,
+# the student retrains on all data so far (warm start). Training settings from train_config.
+rounds: 4
+frames_per_round: 60000
+beta: [0.5, 0.25, 0.0]       # P(execute the teacher's action) per round
+base_data: data/teacher
+epochs_per_round: 3
+workers: 6
+train_config: configs/train/arc.yaml
+teacher_config: configs/train/teacher.yaml
+gate_level: L5
+level_mix: {L1: 0.05, L2: 0.10, L3: 0.20, L4: 0.30, L5: 0.35}
+frames_cap: 6000             # the student flies up to the evaluation cap (high-speed states; collection stops at 3000)
+seed_base: 50000             # round k uses TRAIN seeds from 50000 + (k-1)*5000, never the base data's
+seeds_per_round: 5000
+seeds: train
+online_seeds: 10
+eval_frame_cap: 6000
+final_val_seeds: 50
+planner_cache_dir: reports

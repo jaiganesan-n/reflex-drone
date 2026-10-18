@@ -1,0 +1,35 @@
+# The System 2 teacher (teacher/planner.py, SPEC §11) that labels arc's training data: beam search on calm copies of
+# the game, knowing only what the drone's sensors and object tracker know. Also the evaluation reference (beam 2,
+# replan 5). Flying itself on VAL (replan 1, 8 seeds), L1 / L3 / L5 / endless: moves started a median 1.15 / 1.25 /
+# 1.25 / 1.19 s before an obstacle reached the drone's path; 2,037 / 2,235 / 1,595 / 2,154 m; 0.3 / 1.1 / 2.1 / 0.4
+# bursts per min.
+beam: 2
+macro_frames: 5
+depth: 9
+clearance_weight: 0.5
+clearance_cap_m: 2.0
+climb_penalty: 0.05
+jump_extra_penalty: 0.95
+duck_extra_penalty: 0.95
+hold_gust: true
+safe_frames: 30
+label_temperature: 2.0
+threat_frames: 60
+check_frame_cap: 3000
+
+
+keep_sustained_moves: true  # always keep "keep climbing / keep descending" in the beam: pruning by partial score
+                            # otherwise drops every steady climb and only a last-moment JUMP gets over a tall building
+descend_penalty: 0.05       # DESCEND/DUCK cost what ASCEND/JUMP cost: HOLD wins in open sky
+sensor_limited: true        # plan only around what the sensors show now (20 m, 8 m in fog)
+slow_burst_extra: 3.0       # JUMP/DUCK cost 3 more at 8 m/s, fading to 0 at 16 m/s (2.25 at L1's 10 m/s, 1.5 at 12 m/s):
+                            # a burst is for sudden obstacles at speed; slow moves come first
+bird_envelope: false        # (would plan movers from the game's own path settings, which a real drone cannot know)
+tracked_movers: true        # plan every bird, drone, balloon and plane the sensors show as the band the object tracker
+                            # predicts for it while the drone passes it (the pilot's hazard row): the teacher knows only
+                            # what the pilot's tracker has seen
+tracked_fallback: true      # when no move is safe against the bands (an edge drifting onto the drone near contact),
+                            # plan against the tracker's best guess (no margins) instead of a desperate burst
+path_weight: 0.0            # no clear-path bonus: with it the teacher moved 1-1.5 s early (owner: too early)
+parts_margin_m: 0.2         # plan trees, street lights and kites grown by 0.2 m on every side, so the pilot does not copy
+                            # passes 1-2 cm over a wire and start down before its far end, which its rays cannot see

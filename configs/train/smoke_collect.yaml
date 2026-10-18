@@ -1,0 +1,13 @@
+# Smoke collection (SPEC §14): toy size, VAL seeds only, writes data/smoke.
+target_frames: 600
+workers: 2
+burst_prob: 0.1
+frames_cap: 150
+level_mix:
+  L1: 0.10
+  L2: 0.15
+  L3: 0.20
+  L4: 0.25
+  L5: 0.30
+seeds: val
+shard_frames: 50000

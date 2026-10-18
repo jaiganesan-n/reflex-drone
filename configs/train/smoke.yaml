@@ -1,0 +1,21 @@
+# Smoke overfit (SPEC §14): 10 frames, flat lr 1e-3, no warm-up, 500 optimizer steps.
+# The loss must fall below 0.05 (the command exits 1 otherwise).
+arch: arc
+model: {d: 64, heads: 4, enc_layers: 2, head_layers: 1}
+data: data/smoke
+stage: supervised
+overfit_frames: 10
+epochs: 500                # 1 step per epoch on the same 10 frames
+lr: 1.0e-3
+weight_decay: 0.0
+schedule: flat
+warmup_frac: 0.0
+grad_clip: 1.0
+device: cpu
+online_eval: false
+assert_loss_below: 0.05
+gate_level: L3
+planner_cache_dir: reports/smoke
+final_val_seeds: 2
+eval_frame_cap: 600
+workers: 2

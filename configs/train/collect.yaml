@@ -1,0 +1,15 @@
+# arc's teacher data (data/teacher): the teacher (teacher.yaml) flies TRAIN seeds of every level and labels each
+# frame; random 1-5 frame action bursts (burst_prob) show it states off its own path.
+target_frames: 600000
+workers: 6
+burst_prob: 0.15           # per-frame chance of starting a 1-5 frame burst of random actions
+frames_cap: 3000           # frames per episode
+level_mix:                 # share of frames per level
+  L1: 0.10
+  L2: 0.15
+  L3: 0.20
+  L4: 0.25
+  L5: 0.30
+seeds: train               # TRAIN seeds this dataset hasn't used yet
+shard_frames: 50000        # a shard closes at the first episode boundary >= this
+teacher_config: configs/train/teacher.yaml
