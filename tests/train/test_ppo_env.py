@@ -183,5 +183,5 @@ def test_anchor_kl_to_the_starting_policy():
     kl.backward()
     p = torch.softmax(moved.detach() / 0.32, -1)
     want = (p * (torch.log_softmax(moved.detach() / 0.32, -1) - ref_logp)).nan_to_num(0.0).sum(-1).mean()
-    assert float(kl) == pytest.approx(float(want)) and float(kl) > 0.1
+    assert float(kl.detach()) == pytest.approx(float(want)) and float(kl.detach()) > 0.1
     assert torch.isfinite(moved.grad).all() and (moved.grad[0, 3:] == 0).all()
