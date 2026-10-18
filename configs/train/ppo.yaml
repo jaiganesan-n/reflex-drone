@@ -1,4 +1,7 @@
-# Optional PPO practice (run arc_C; gate G5 reads val_ratio on L5).
+# arc_ppo: PPO fine-tuning of arc (runs/arc_B/best.pt) in the real game, run arc_ppo (scripts/train_arc_ppo.sh).
+# Earlier PPO runs (archive/logs) flew farther on the easy levels but started moves later (1.0-1.6 s -> 0.5-1.0 s
+# ahead) and cruised near the ceiling. This one keeps arc's own choices as an anchor, and the reward pays only for
+# survival, clearance, smooth flying and fewer needless bursts.
 num_envs: 8
 steps_per_env: 1024
 lr: 1.0e-4
@@ -10,21 +13,38 @@ gae_lambda: 0.95
 update_epochs: 4
 minibatch_size: 1024
 max_grad_norm: 0.5
-critic_warmup_steps: 50000     # actor frozen, value head only
-aux_weight: 0.1                # supervised contract losses on replayed teacher frames
+critic_warmup_steps: 50000     # actor frozen, value head only (it also learns the shaped reward)
+policy_temperature: 0.32       # arc's calibrated T: practice samples close to how arc flies
+ref_kl_coef: 0.5               # + 0.5 x KL(policy || arc) on the states it flies: keeps arc's timing unless the reward says otherwise
+aux_weight: 0.5                # teacher losses on replayed teacher frames
+aux_mask_needless_bursts: true # no JUMP/DUCK in that target where HOLD, ASCEND or DESCEND is safe
 aux_batch: 256
 replay_data: data/teacher
-curriculum: [L4, L5]           # session 3, owner decision (was [L1, L2, L3, L4, L5]: 75 min on L1-L2, L5 online fell 0.27 -> ~0.13)
-advance_frac: 0.8              # move up at 80% of the level's planner mean distance
-rolling_episodes: 20
+level_mix: {L1: 0.10, L2: 0.15, L3: 0.20, L4: 0.25, L5: 0.30}   # per episode, as in arc's teacher data
+select_levels: [L1, L3, L5]    # best.pt = best mean online ratio over these (10 VAL seeds each)
+select_after: 100              # arc itself can't be best.pt
+snapshot_every: 100            # update_<n>.pt, to check timing and bursts afterwards
+# training-only shaping, on top of the game reward (alive +0.01 per frame, obstacle cleared +1, crash -5)
+clearance_bonus: 0.02          # per frame: + 0.02 * min(clearance, 2 m) / 2 m (clearance includes the ceiling)
+clearance_cap_m: 2.0
+target_change_penalty: 0.0167  # per m/s of change in target vertical speed: HOLD<->ASCEND 0.05, ASCEND<->DESCEND 0.10
+vertical_speed_penalty: 0.0    # off: in g2 it paid for the smallest, last-moment move
+burst_penalty: 0.1             # per JUMP or DUCK started
+slow_burst_penalty: 1.0        # + 0.75 more at 10 m/s, + 0.5 at 12 m/s (fades from 8 to 16 m/s)
+needless_burst_penalty: 1.0    # + 1.0 more when a slower move gets through the whole 1.5 s plan (arc's weakness)
+needless_safe_frames: 45
+teacher_config: configs/train/teacher.yaml
+path_bonus: 0.0                # off: with it, g2 learned to cruise near the ceiling
+rolling_episodes: 40
 episode_frame_cap: 6000
 seeds: train
-eval_every: 10                 # updates between online checks (10 L5 VAL seeds)
-gate_level: L5
+eval_every: 20                 # updates between online checks (3 levels x 10 VAL seeds)
+gate_level: L5                 # final 50-seed val_ratio
 online_seeds: 10
 eval_frame_cap: 6000
 final_val_seeds: 50
 planner_cache_dir: reports
 workers: 6
-time_budget_min: 180           # --time-budget-min overrides
-device: mps                    # session 3: measured 905 vs 770 env steps/s on CPU (M5, after critic warm-up)
+total_steps: 8192000           # 1,000 updates; counted in steps, so a pause on low battery costs nothing
+time_budget_min: 600           # safety cap only (wall clock)
+device: mps
