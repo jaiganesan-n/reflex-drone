@@ -96,7 +96,8 @@ The feed-forward layers are 4 × d wide. The 2 × d version (130,311 weights) fl
    - **Selection:** best round (4) by L5 VAL.
 6. **Calibrate again, export to ONNX** (parity check: logits within 1.2e-5 of PyTorch), evaluate.
 
-No reinforcement learning (PPO) was used. At play time only arc runs; the planner is never called.
+arc itself uses no reinforcement learning; arc_ppo (below) is arc plus PPO. At play time only the pilot runs;
+the planner is never called.
 
 `scripts/train_arc.sh` runs steps 2–6.
 
@@ -114,4 +115,48 @@ No reinforcement learning (PPO) was used. At play time only arc runs; the planne
 - **Endless:** median 5.1 km in 18 long runs.
 - **Known weakness:** needless bursts near the ceiling (13 of the 57 L5 TEST crashes and 22 of 98 in stress were the
   ceiling), and climbing into storm clouds over a bird.
-- **Latency:** `act()` p99 was 1.6 ms on battery, against a gate of 1 ms. Re-measure on AC power.
+- **Latency:** `act()` p50 0.14 ms, p99 0.16 ms on AC power (gate: p99 < 1 ms). The earlier 1.6 ms p99 was
+  measured on battery in Low Power Mode.
+
+## arc_ppo: arc fine-tuned with PPO
+
+`artifacts/arc_ppo.onnx` + `arc_ppo.json` (run `arc_ppo`, 18 Oct 2026). Same inputs, network and size as arc; only
+the weights differ.
+
+**Training** (`train/ppo.py`, `configs/train/ppo.yaml`, `scripts/train_arc_ppo.sh`):
+
+- **Start:** arc's weights (`runs/arc_B/best.pt`). 1,000 PPO updates, 8.19M game steps, about 3 h:
+  - 8 games at once, 1,024 steps each per update, 4 epochs, minibatch 1,024;
+  - lr 1e-4, clip 0.1, entropy 0.005, γ 0.99, GAE λ 0.95;
+  - the first 50k steps train only the value head.
+- **Policy:** sampled and updated as softmax(logits / 0.32), arc's calibrated temperature, so practice flies close to
+  how arc plays.
+- **Levels:** each practice run draws L1-L5 with weights 10/15/20/25/30%, on TRAIN seeds.
+- **Reward:** the game's own (alive +0.01 per frame, obstacle cleared +1, crash −5), plus training-only shaping:
+  - clearance +0.02 per frame × min(clearance, 2 m) / 2 m (the ceiling counts);
+  - −0.0167 per m/s of change in target climb rate;
+  - −0.1 per JUMP or DUCK, plus 0.5 more at 12 m/s (0.75 at 10 m/s);
+  - −1.0 more when the teacher finds that a slower move gets through the whole 1.5 s plan (a needless burst).
+- **Anchors** (so practice keeps arc's feel):
+  - + 0.5 × KL(policy ‖ arc) on the states it flies. This keeps arc's timing; earlier PPO pilots without it started
+    moves too late.
+  - + 0.5 × the supervised teacher losses on replayed teacher frames (no JUMP/DUCK targets where a slower move is
+    safe).
+- **Selection:** the best checkpoint by mean distance ratio on L1, L3 and L5 (10 VAL seeds each, every 20 updates):
+  update 560. Then calibration (T 0.39, τ 0.45) and ONNX export (parity within 1.1e-5).
+
+**Results** (VAL, the same 50 seeds per level as arc):
+
+| | L1 | L2 | L3 | L4 | L5 |
+|---|---|---|---|---|---|
+| arc_ppo | 2,012 m · 98% | 2,057 m · 72% | 2,092 m · 72% | 1,866 m · 56% | 1,937 m · 60% |
+| arc | 1,922 m · 92% | 2,112 m · 80% | 2,135 m · 76% | 1,881 m · 52% | 1,818 m · 48% |
+
+- **Distance:** a tie overall (mean 1,993 m vs 1,974 m). Better on L1 and L5, slightly worse on L2 and L3; only the L1
+  gain is beyond seed noise.
+- **Crashes:** no ceiling crashes (arc: 15). More storm-cloud (17 vs 10) and traffic-drone (7 vs 2) crashes.
+- **Feel:** like arc:
+  - same holds and timing (moves start a median 1.0-1.13 s ahead) and same mean height;
+  - a third fewer bursts (0.2 / 0.6 / 1.1 per min at L1 / L3 / L5).
+- **Endless:** median 6.8 km in 18 long runs (arc 5.1 km, same seeds); 72% pass 6 km (arc 39%).
+- **TEST/STRESS:** not run; they run once, if arc_ppo is chosen.

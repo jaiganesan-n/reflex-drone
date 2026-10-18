@@ -2,7 +2,7 @@
 
 A Chrome-Dino-style side-scroller where a drone flies itself. Every frame (30 Hz) the pilot sees
 only its sensors and picks one of five actions: HOLD, ASCEND, DESCEND, JUMP, DUCK. The pilot is
-**arc**, a small "System 1" network (Project J'AI 2). A person can only **Start, Pause/Resume and
+**arc**, a small "System 1" network (Project J'AI 2), or **arc_ppo**, arc fine-tuned with PPO. A person can only **Start, Pause/Resume and
 End** a run; there are no flying controls.
 
 The contract is `../docs/SPEC.md` (v2.3). The run log is `reports/run_log.md`.
@@ -21,6 +21,7 @@ uv sync
 ```bash
 uv run python -m app.play --agent onnx-arc:artifacts/arc.onnx                                  # arc, endless mode
 uv run python -m app.play --agent onnx-arc:artifacts/arc.onnx --level L5 --seed 42 --show-attention
+uv run python -m app.play --agent onnx-arc:artifacts/arc_ppo.onnx                              # arc_ppo (PPO fine-tune of arc)
 uv run python -m app.play --agent rule                                                         # hand-written test pilot
 ```
 
@@ -62,23 +63,28 @@ Every obstacle passes the generator's solvability checks before it is placed.
 - **JUMP and DUCK are bursts** (±6 m/s for 0.3 s, a shared 1 s cooldown) for sudden obstacles at
   speed; ASCEND and DESCEND (3 m/s) are the normal moves.
 
-## arc, the pilot
+## The pilots: arc and arc_ppo
 
-`artifacts/arc.onnx` (runs `arc_A` → `arc_B`). It flies on its own; the teacher (planner) is never
-used at play time.
+`artifacts/arc.onnx` (runs `arc_A` → `arc_B`): imitation of a planner, then DAgger.
+`artifacts/arc_ppo.onnx` (run `arc_ppo`): arc fine-tuned with PPO in the game. Same inputs and network.
+Both fly on their own; the teacher (planner) is never used at play time.
 
-| | L1 | L2 | L3 | L4 | L5 | stress |
+| VAL, 50 seeds | L1 | L2 | L3 | L4 | L5 | endless (18 runs, median) |
 |---|---|---|---|---|---|---|
-| TEST (100 seeds, unseen) | 1,947 m · 93% | 2,174 m · 77% | 2,020 m · 65% | 2,070 m · 63% | 1,697 m · 43% | 832 m · 2% |
-| VAL (50 seeds) | 1,922 m · 92% | 2,112 m · 80% | 2,135 m · 76% | 1,881 m · 52% | 1,818 m · 48% | |
+| arc | 1,922 m · 92% | 2,112 m · 80% | 2,135 m · 76% | 1,881 m · 52% | 1,818 m · 48% | 5.1 km |
+| arc_ppo | 2,012 m · 98% | 2,057 m · 72% | 2,092 m · 72% | 1,866 m · 56% | 1,937 m · 60% | 6.8 km |
 
 Mean distance and share of runs that survive the 6,000-frame cap (200 s).
 
-- **Feel:** holds 77–92% of the time and starts its moves a median 1.0–1.15 s before an obstacle
-  reaches its path. JUMP/DUCK 0.3 per min at L1, 1.7 at L5. Mean height 5.8–6.6 m.
-- **Endless:** median 5.1 km over 18 long runs (cap 20 min). Its weakness is needless bursts near
-  the ceiling.
-- **Speed:** `act()` median 0.32 ms, p99 1.6 ms (measured on battery; the gate is p99 < 1 ms).
+- **arc on TEST** (100 unseen seeds, once, after it was chosen):
+  - L1 1,947 m · 93%; L2 2,174 m · 77%; L3 2,020 m · 65%; L4 2,070 m · 63%; L5 1,697 m · 43%;
+  - stress 832 m · 2%.
+- **Feel:** both hold 76–92% of the time and start their moves a median 1.0–1.15 s before an obstacle reaches
+  their path. Mean height is 5.8–6.6 m for both.
+- **Bursts:** arc JUMPs or DUCKs 0.3 per min at L1 and 1.7 at L5; arc_ppo 0.2 and 1.1.
+- **Differences:** arc's weakness is needless bursts near the ceiling (15 ceiling crashes on VAL); arc_ppo has none.
+  arc_ppo is weaker against sudden storm clouds and traffic drones.
+- **Speed:** `act()` median 0.14 ms, p99 0.16 ms (on AC power).
 
 Inputs, network and training: `reports/arc_model_card.md`.
 
@@ -86,13 +92,14 @@ Inputs, network and training: `reports/arc_model_card.md`.
 
 ```bash
 bash scripts/train_arc.sh        # teacher data -> supervised -> DAgger -> calibrate -> artifacts/arc.onnx -> VAL
+bash scripts/train_arc_ppo.sh    # PPO from arc -> calibrate -> artifacts/arc_ppo.onnx -> VAL (~2.5 h on AC)
 bash scripts/smoke_pipeline.sh   # every step at toy size (~3 min)
 uv run python -m eval.evaluate --agent onnx-arc:artifacts/arc.onnx --levels L1 L2 L3 L4 L5 stress --seeds test --out reports/arc_final.json   # once, final only
 uv run python -m eval.latency --agent onnx-arc:artifacts/arc.onnx --calls 10000 --out reports/latency_arc.json
 uv run python scripts/calibrate_tracker.py   # re-calibrate the tracker's margins after changing bird or drone motion
 ```
 
-Settings: `configs/train/teacher.yaml` (the teacher), `collect.yaml`, `arc.yaml`, `dagger.yaml`.
+Settings: `configs/train/teacher.yaml` (the teacher), `collect.yaml`, `arc.yaml`, `dagger.yaml`, `ppo.yaml` (arc_ppo).
 `runs/`, `data/*/`, `artifacts/` and `archive/` are git-ignored: the trained files exist only on
 the machine that made them. `archive/` holds the logs of earlier training and a bundle of the
 earlier git history (`git clone archive/git_history_before_arc.bundle old-history`).
@@ -130,10 +137,10 @@ app/          play (app loop) · controls (Start/Pause/End) · hud · agents_bas
 teacher/      planner (System 2 beam search) · parallel
 data/         collect · rollout · dataset · inspect · dagger
 models/       arc (System 1) · mlp (flat baseline) · policy
-train/        supervised · calibrate · ppo (optional, not used for arc) · export_onnx · common
+train/        supervised · calibrate · ppo (arc_ppo) · export_onnx · common
 eval/         evaluate · latency · report · planner_cache
 agents/       onnx_agents (onnx-arc, onnx-mlp)
-scripts/      train_arc.sh · smoke_pipeline.sh · calibrate_tracker.py
+scripts/      train_arc.sh · train_arc_ppo.sh · smoke_pipeline.sh · calibrate_tracker.py
 tests/        env/ app/ teacher/ models/ train/
-reports/      run_log.md · arc_model_card.md · arc_val.json / arc_final.json (git-ignored JSON)
+reports/      run_log.md · arc_model_card.md · arc_val.json / arc_ppo_val.json / arc_final.json (git-ignored JSON)
 ```
