@@ -24,7 +24,8 @@ level_mix: {L1: 0.10, L2: 0.15, L3: 0.20, L4: 0.25, L5: 0.30}   # per episode, a
 select_levels: [L1, L3, L5]    # best.pt = best mean online ratio over these (10 VAL seeds each)
 select_after: 100              # arc itself can't be best.pt
 snapshot_every: 100            # update_<n>.pt, to check timing and bursts afterwards
-# training-only shaping, on top of the game reward (alive +0.01 per frame, obstacle cleared +1, crash -5)
+# training-only shaping, on top of the game reward (alive +0.01 per frame, obstacle cleared +1, crash -5,
+# -0.002 per action change)
 clearance_bonus: 0.02          # per frame: + 0.02 * min(clearance, 2 m) / 2 m (clearance includes the ceiling)
 clearance_cap_m: 2.0
 target_change_penalty: 0.0167  # per m/s of change in target vertical speed: HOLD<->ASCEND 0.05, ASCEND<->DESCEND 0.10

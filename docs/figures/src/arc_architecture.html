@@ -1,0 +1,155 @@
+<!doctype html>
+<!-- Source of docs/figures/arc_architecture.png. Render from reflex-drone/:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars \
+       --force-device-scale-factor=2 --window-size=1600,880 --virtual-time-budget=8000 \
+       --screenshot=docs/figures/arc_architecture.png docs/figures/src/arc_architecture.html -->
+<html lang="en"><head><meta charset="utf-8"><title>Arc architecture</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;600;700&family=STIX+Two+Text:ital@0;1&display=block">
+<style>
+:root{--bg:#f4f5f9;--card:#fbfbfd;--ink:#14161f;--ink2:#4a5262;--muted:#7a8494;--line:#dfe3ea;
+ --or:#c2410c;--or-line:#e07a2f;--or-tint:#fdeedd;--or-txt:#9a3412;
+ --bl:#2563eb;--bl-tint:#dbeafe;--bl-txt:#1d4ed8;--gr:#4a5262;--obs:#8d97a8;
+ --sans:"Space Grotesk",system-ui,sans-serif;--mono:"JetBrains Mono",monospace;--math:"STIX Two Text",serif}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1600px;height:880px;background:var(--bg);font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;overflow:hidden}
+.page{padding:44px 52px 0}
+.kicker{font-family:var(--mono);font-weight:700;font-size:15px;letter-spacing:.16em;text-transform:uppercase;color:var(--or)}
+h1{font-weight:700;font-size:40px;letter-spacing:-.02em;margin-top:10px}
+.lead{font-size:18px;color:var(--ink2);margin-top:8px}
+.lead b{color:var(--ink);font-weight:600}
+.row{display:flex;align-items:stretch;margin-top:26px;gap:0}
+.col{display:flex;flex-direction:column}
+.lab{font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;white-space:nowrap}
+.lab.bl{color:var(--bl-txt)} .lab.or{color:var(--or)}
+.card{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:11px 14px}
+.card+.card{margin-top:9px}
+.card .t{font-family:var(--mono);font-weight:700;font-size:14px}
+.card .t small{font-weight:400;color:var(--muted);font-size:13px}
+.card .d{font-size:13.5px;color:var(--ink2);line-height:1.35;margin-top:3px}
+.card.or{background:var(--or-tint);border-color:var(--or-line)} .card.or .t{color:var(--or-txt)}
+.card.bl{background:var(--bl-tint);border-color:var(--bl)}
+.card.dash{border-style:dashed;background:transparent}
+.arrow{width:46px;display:flex;align-items:center;justify-content:center;flex:none}
+.tokens{display:grid;grid-template-columns:repeat(2,44px);gap:6px;margin-top:2px}
+.tk{height:28px;border-radius:7px;color:#fff;font-family:var(--mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.tk.s{background:var(--gr)} .tk.o{background:var(--obs)} .tk.a{background:var(--bl)} .tk.dd{background:var(--bl-txt)}
+.band{background:var(--bl-tint);border:1.5px solid var(--bl);border-radius:16px;padding:16px 18px}
+.step{font-size:15px;font-weight:500;background:#fff;border:1.5px solid #bfd3fb;border-radius:10px;padding:8px 12px;text-align:center}
+.step.att{background:#fff7d6;border-color:#e3b93c}
+.step small{display:block;font-size:12.5px;color:var(--ink2);font-weight:400}
+.vflow{display:flex;flex-direction:column;align-items:stretch;gap:0}
+.vflow .down{height:16px;display:flex;justify-content:center}
+.plus{align-self:center;font-family:var(--mono);font-size:13px;color:var(--bl-txt);font-weight:700}
+.rule{font-size:13px;color:var(--ink2);line-height:1.45}
+.rule b{color:var(--ink);font-weight:600}
+.eq{font-family:var(--math);font-size:19px;line-height:1.5}
+.stats{display:flex;gap:0;margin-top:26px;border-top:1.5px solid var(--line);padding-top:18px}
+.stat{flex:1}
+.stat .v{font-weight:700;font-size:34px;letter-spacing:-.02em}
+.stat .v small{font-size:18px;font-weight:600;color:var(--ink2)}
+.stat .v.bl{color:var(--bl-txt)}
+.stat .l{font-size:14px;color:var(--ink2);margin-top:2px}
+</style></head><body><div class="page">
+<div class="kicker">Decision model · arc</div>
+<h1>One frame in, one move out</h1>
+<div class="lead">The <b>System 1 pilot</b> of Reflex Drone: attention over a set of tokens, one forward pass per frame, 30 times a second. <b>No search, memory or planner at play time.</b></div>
+
+<div class="row">
+  <!-- 1. inputs -->
+  <div class="col" style="width:330px">
+    <div class="lab">1 · One frame, sensors only</div>
+    <div class="card"><div class="t">SELF <small>11 values</small></div><div class="d">height, climb rate, tucked, burst cooldown, speed, felt wind, last action</div></div>
+    <div class="card"><div class="t">RAYS <small>13 values</small></div><div class="d">first-hit distance from −60° to +60°, out to 20 m</div></div>
+    <div class="card"><div class="t">OBSTACLE × 12 <small>13 values + kind</small></div><div class="d">gap, body now, size, speeds, and the object tracker's watched time, seen band and predicted band</div></div>
+    <div class="card or"><div class="t">+ 5 physics numbers <small>per obstacle</small></div><div class="d">time to contact, climb and descent needed, slack of a slow move: "is there time, or does this need a burst?"</div></div>
+    <div class="card"><div class="t">ACTION × 5 <small>id + 3 values</small></div><div class="d">rise in 0.5 s, hitbox scale, duration; unavailable actions masked</div></div>
+  </div>
+
+  <div class="arrow"><svg width="40" height="20"><path d="M2 10 H32" stroke="#8a93a3" stroke-width="2.5"/><path d="M28 4 L36 10 L28 16" fill="none" stroke="#8a93a3" stroke-width="2.5"/></svg></div>
+
+  <!-- 2. tokens -->
+  <div class="col" style="width:122px">
+    <div class="lab bl">2 · 20 tokens</div>
+    <div class="rule" style="margin-bottom:8px">one MLP per kind<br>→ 64 wide<br>no positions (a set)<br>grey = 12 obstacles</div>
+    <div class="tokens">
+      <div class="tk s">S</div><div class="tk s">R</div>
+      <div class="tk o">1</div><div class="tk o">2</div><div class="tk o">3</div><div class="tk o">4</div>
+      <div class="tk o">5</div><div class="tk o">6</div><div class="tk o">7</div><div class="tk o">8</div>
+      <div class="tk o">9</div><div class="tk o">10</div><div class="tk o">11</div><div class="tk o">12</div>
+      <div class="tk a">A1</div><div class="tk a">A2</div><div class="tk a">A3</div><div class="tk a">A4</div>
+      <div class="tk a">A5</div><div class="tk dd">D</div>
+    </div>
+    <div class="rule" style="margin-top:8px">D = DECIDE,<br>a learned vector</div>
+  </div>
+
+  <div class="arrow"><svg width="40" height="20"><path d="M2 10 H32" stroke="#8a93a3" stroke-width="2.5"/><path d="M28 4 L36 10 L28 16" fill="none" stroke="#8a93a3" stroke-width="2.5"/></svg></div>
+
+  <!-- 3. entity encoder -->
+  <div class="col" style="width:330px">
+    <div class="lab bl">3 · Entity encoder × 2 blocks</div>
+    <div class="band vflow">
+      <div class="step">LayerNorm</div>
+      <div class="down"><svg width="12" height="16"><path d="M6 0 V11 M1 7 L6 13 L11 7" fill="none" stroke="#8a93a3" stroke-width="2"/></svg></div>
+      <div class="step att">Masked attention<small>4 heads · d<sub>k</sub> 16 · mask M</small></div>
+      <div class="plus">⊕ residual</div>
+      <div class="step">LayerNorm</div>
+      <div class="down"><svg width="12" height="16"><path d="M6 0 V11 M1 7 L6 13 L11 7" fill="none" stroke="#8a93a3" stroke-width="2"/></svg></div>
+      <div class="step">Feed-forward<small>64 → 256 → 64 · GELU</small></div>
+      <div class="plus">⊕ residual</div>
+      <div style="display:flex;gap:14px;align-items:center;margin-top:10px">
+        <svg id="mask" width="100" height="100" style="flex:none"></svg>
+        <div class="rule"><b>Mask M</b>, who sees whom:<br>context ↔ context<br>ACTION → context + itself<br>DECIDE → all that is valid</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow"><svg width="40" height="20"><path d="M2 10 H32" stroke="#8a93a3" stroke-width="2.5"/><path d="M28 4 L36 10 L28 16" fill="none" stroke="#8a93a3" stroke-width="2.5"/></svg></div>
+
+  <!-- 4. choice head -->
+  <div class="col" style="width:170px">
+    <div class="lab bl">4 · Choice head × 1</div>
+    <div class="band" style="padding:14px">
+      <div class="rule" style="margin-bottom:10px">keep the 5 ACTION tokens + DECIDE</div>
+      <div class="tokens" style="grid-template-columns:repeat(3,40px);gap:6px">
+        <div class="tk a">A1</div><div class="tk a">A2</div><div class="tk a">A3</div>
+        <div class="tk a">A4</div><div class="tk a">A5</div><div class="tk dd">D</div>
+      </div>
+      <div class="step" style="margin-top:12px">same block<small>actions and DECIDE compare</small></div>
+      <div class="down" style="height:16px;display:flex;justify-content:center"><svg width="12" height="16"><path d="M6 0 V11 M1 7 L6 13 L11 7" fill="none" stroke="#8a93a3" stroke-width="2"/></svg></div>
+      <div class="step">LayerNorm</div>
+    </div>
+  </div>
+
+  <div class="arrow"><svg width="40" height="20"><path d="M2 10 H32" stroke="#8a93a3" stroke-width="2.5"/><path d="M28 4 L36 10 L28 16" fill="none" stroke="#8a93a3" stroke-width="2.5"/></svg></div>
+
+  <!-- 5. outputs -->
+  <div class="col" style="flex:1">
+    <div class="lab or">5 · Outputs</div>
+    <div class="card or">
+      <div class="t">MOVE <small>bilinear, one query, five keys</small></div>
+      <div class="eq">ℓ<sub>a</sub> = ⟨W<sub>q</sub>h<sub>D</sub>, W<sub>k</sub>h<sub>a</sub>⟩ / √64</div>
+      <div class="eq">a* = argmax softmax(ℓ / T), T = 0.32</div>
+    </div>
+    <div class="card"><div class="t">P(SAFE) × 5 <small>per ACTION</small></div><div class="d">still flying 1 s after choosing it</div></div>
+    <div class="card"><div class="t">THREAT <small>from DECIDE</small></div><div class="d">level 0–4 (time until a crash if it holds)</div></div>
+    <div class="card"><div class="t">ATTENTION <small>DECIDE → 12 obstacles</small></div><div class="d">what it is watching (--show-attention)</div></div>
+    <div class="card dash"><div class="t" style="color:var(--muted)">VALUE <small>training only</small></div><div class="d">PPO critic; not in the ONNX file</div></div>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="v">179,847</div><div class="l">weights · 1 MB ONNX</div></div>
+  <div class="stat"><div class="v bl">0.14<small> ms</small></div><div class="l">act() median · p99 0.16 ms (one CPU thread)</div></div>
+  <div class="stat"><div class="v">2 + 1</div><div class="l">attention blocks · d 64 · 4 heads</div></div>
+  <div class="stat"><div class="v">30<small> Hz</small></div><div class="l">one decision per frame, 5 actions</div></div>
+</div>
+</div>
+<script>
+// mask icon: rows = queries (S, R, O1..O4 shown as context, A1..A5, D); a 12-token sketch of the 20-token mask
+const svg=document.getElementById('mask'),n=12,c=6.5,g=1.8,ctx=6,act=5;
+const allow=(r,k)=>(r<ctx&&k<ctx)||(r>=ctx&&r<ctx+act&&(k<ctx||k===r))||(r===n-1);
+let s='';for(let r=0;r<n;r++)for(let k=0;k<n;k++){const ok=allow(r,k);
+s+=`<rect x="${k*(c+g)+1}" y="${r*(c+g)+1}" width="${c}" height="${c}" rx="1.5" fill="${ok?(r===n-1?'#1d4ed8':'#2563eb'):'#ffffff'}" stroke="${ok?'none':'#c9d6f2'}"/>`}
+svg.innerHTML=s;
+</script>
+</body></html>

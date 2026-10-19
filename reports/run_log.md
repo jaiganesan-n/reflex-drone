@@ -116,3 +116,38 @@ STRESS for arc_ppo run only if the owner chooses it.
   - arc_ppo is steadier: no ceiling crashes, a third fewer bursts, and longer endless runs.
   - It is weaker on storm clouds and traffic drones that come suddenly.
   - TEST and STRESS for arc_ppo wait for the owner's choice.
+
+## Check of repo, docs and results; TEST reference; README (19 Oct 2026)
+
+The owner asked to check the repo, code, docs, results and logs against the objective, to check the architecture
+against the code and the game results, and to rewrite the README with an architecture figure and a game snapshot.
+
+- **What matches** (docs against `reports/*.json`, `runs/*/summary.json`, `runs/logs/`, the code):
+  - every VAL and TEST table, the crash counts and the paired differences;
+  - the feel and endless numbers, and the latency;
+  - 179,847 weights (179,782 in the ONNX file, without the value head);
+  - the ONNX inputs and outputs (SPEC §13), the loss and sampling weights, the teacher costs and the PPO loss.
+  - `app/` and `agents/` never import the planner or the simulator. Tests: 249 passed (75 s).
+- **Reference planner on TEST** (`eval.evaluate --agent planner --levels L5 stress --seeds test --out
+  reports/planner_final.json`; 311 s, AC):
+  - planner: L5 1,918 m, 57% survive; stress 851 m, 3%.
+  - arc: **L5 TEST ratio 0.885** (the SPEC headline), stress 0.978, so the stress drop is −0.105.
+  - G6 passes (p99 0.16 ms, drop ≤ 0.20). The reference only measures the yardstick; no pilot was re-run on TEST.
+- **Two references:**
+  - `reports/arc_val.json`, `runs/arc_A|arc_B/summary.json` and the `val_ratio` in `artifacts/arc.json` were computed
+    on 17 Oct against the earlier, plain planner (L5 VAL 1,380 m).
+  - Since 18 Oct the reference is `teacher.yaml` (L5 VAL 1,953 m on 50 seeds; only 10 seeds per level cached for
+    L1–L4). Against it: arc L5 VAL 0.931, arc_ppo 0.992. The old files are left as they are.
+- **Fixed in the docs:**
+  - the model card's 0.32 ms per pass was a battery number; it now says 0.14 ms on AC;
+  - PPO's game reward also has −0.002 per action change (model card and the `ppo.yaml` comment).
+- **Status:** arc stays the chosen pilot and arc_ppo is kept as a try. The owner played arc_ppo twice in endless on
+  18 Oct (5,646 m, tree; 5,214 m, traffic).
+- **README:** rewritten, with these media:
+  - `docs/figures/arc_architecture.png` and `training_pipeline.png`, drawn from `docs/figures/src/*.html` with
+    headless Chrome;
+  - `gameplay.png` and `gameplay.gif`, from the owner's recording of arc in endless (10.46–11.28 km, seed
+    1606555667). The recording itself is not in git: it goes into the README as a GitHub video attachment (dragged
+    into the editor on github.com), the only kind of video that plays inside a README.
+- **Not changed:** `wall_seconds_running` in the play summary (`app/play.py`) adds up only the time inside
+  `step_once` (simulation + pilot), not wall time. It shows 14 s for a 477 s run.

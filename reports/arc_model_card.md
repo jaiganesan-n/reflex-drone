@@ -60,7 +60,7 @@ These answer the question "is there time for a slow move, or does this need a bu
 | Entity encoder | 2 transformer blocks (pre-norm, 4-head attention, feed-forward 64→256→64, GELU) with a structured mask: the context tokens see each other, each ACTION sees the context and itself, DECIDE sees everything valid |
 | Choice head | 1 block among the 5 ACTION tokens and DECIDE |
 | Outputs | **choice** logits (bilinear DECIDE · ACTION, unavailable actions −inf); **P(safe)** per action (still flying after 1 s); **threat** level 0–4; DECIDE's attention over the 12 obstacles (shown with `--show-attention`) |
-| Size | 179,847 weights; ONNX 1 MB (opset 18); one forward pass per frame, median 0.32 ms |
+| Size | 179,847 weights (179,782 in the ONNX file, without the training-only value head); ONNX 1 MB (opset 18); one forward pass per frame, `act()` median 0.14 ms on AC power |
 | Decision | softmax(logits / T) with T = 0.32 (calibrated); "hesitating" when the top probability < 0.45 |
 
 The feed-forward layers are 4 × d wide. The 2 × d version (130,311 weights) flew 7% less far on L3 VAL.
@@ -110,6 +110,12 @@ the planner is never called.
 
 - **Distance:** mean distance and share of runs surviving 6,000 frames (200 s). L1 runs at 10 m/s, L2–L5 at 12, and
   stress at 14.4 with doubled interruptions.
+- **Distance ratio** (against the reference planner, `teacher.yaml` with beam 2 and replan 5, on the same seeds):
+  - L5 TEST 0.89 (planner 1,918 m, 57% survive). This is the headline result.
+  - stress 0.98 (planner 851 m, 3% survive), so the stress drop is −0.10 (gate G6: ≤ 0.20).
+  - L5 VAL 0.93 (planner 1,953 m).
+  - The `val_ratio` 1.317 in `arc.json` and `runs/arc_B/summary.json` was measured against the earlier, plain planner
+    (1,380 m on L5 VAL), before `teacher.yaml` became the reference.
 - **Feel (8 VAL seeds):** holds 77–92% of the time; starts moves a median 1.0–1.15 s before an obstacle reaches its
   path; 0.3 JUMP/DUCK per min at L1 and 1.7 at L5.
 - **Endless:** median 5.1 km in 18 long runs.
@@ -132,7 +138,8 @@ the weights differ.
 - **Policy:** sampled and updated as softmax(logits / 0.32), arc's calibrated temperature, so practice flies close to
   how arc plays.
 - **Levels:** each practice run draws L1-L5 with weights 10/15/20/25/30%, on TRAIN seeds.
-- **Reward:** the game's own (alive +0.01 per frame, obstacle cleared +1, crash −5), plus training-only shaping:
+- **Reward:** the game's own (alive +0.01 per frame, obstacle cleared +1, crash −5, −0.002 per action change), plus
+  training-only shaping:
   - clearance +0.02 per frame × min(clearance, 2 m) / 2 m (the ceiling counts);
   - −0.0167 per m/s of change in target climb rate;
   - −0.1 per JUMP or DUCK, plus 0.5 more at 12 m/s (0.75 at 10 m/s);
@@ -159,4 +166,5 @@ the weights differ.
   - same holds and timing (moves start a median 1.0-1.13 s ahead) and same mean height;
   - a third fewer bursts (0.2 / 0.6 / 1.1 per min at L1 / L3 / L5).
 - **Endless:** median 6.8 km in 18 long runs (arc 5.1 km, same seeds); 72% pass 6 km (arc 39%).
-- **TEST/STRESS:** not run; they run once, if arc_ppo is chosen.
+- **Distance ratio:** L5 VAL 0.99 (planner 1,953 m).
+- **TEST/STRESS:** not run. arc stays the chosen pilot and arc_ppo is kept as a try; TEST runs only if that changes.
