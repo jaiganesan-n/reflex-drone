@@ -84,6 +84,10 @@ Real-life obstacles for a drone flying along a road: buildings, trees, street li
 
 ### Watch the full run
 
+
+https://github.com/user-attachments/assets/fa877c7f-902b-4164-b366-6d9229c38149
+
+
 arc flying the endless level on its own for 70 s, uncut, from 10.46 to 11.28 km at 12 m/s. Nobody touches the controls.
 
 <!-- VIDEO: on github.com, edit this file and drag arc_model_demo3.mp4 onto the empty line below this comment.
