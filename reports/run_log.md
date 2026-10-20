@@ -151,3 +151,42 @@ against the code and the game results, and to rewrite the README with an archite
     into the editor on github.com), the only kind of video that plays inside a README.
 - **Not changed:** `wall_seconds_running` in the play summary (`app/play.py`) adds up only the time inside
   `step_once` (simulation + pilot), not wall time. It shows 14 s for a 477 s run.
+
+## Two trained pilots: arc (DAgger) and arc_ppo (PPO fine-tuning) (owner, 20 Oct 2026)
+
+The owner: "We used two training methods, DAgger and PPO. Don't mention PPO as just a try. It's also trained. We
+trained with DAgger and fine-tuned with PPO. Clearly mention that both models run in the game."
+
+- **Status:** this replaces the 19 Oct status line. arc (DAgger) and arc_ppo (arc + PPO) are both trained pilots, and
+  both fly in the game (`--agent onnx-arc:artifacts/arc.onnx` or `onnx-arc:artifacts/arc_ppo.onnx`).
+- **Check:** both ONNX files loaded through `load_agent` (the loader `app/play.py` uses) and flew 60 s of endless
+  (seed 123) without a crash.
+- **Docs:** the README (title, intro, §2.2, §4.4, Play, Train), the model card and `docs/figures/training_pipeline.png`
+  (source `docs/figures/src/training_pipeline.html`, re-rendered) now present both pilots and no longer call PPO
+  optional or a try.
+
+## arc_ppo: TEST and STRESS (owner, 20 Oct 2026, once)
+
+The owner asked to test arc_ppo and update the docs. Run once, on the same TEST and STRESS seeds as arc:
+`eval.evaluate --agent onnx-arc:artifacts/arc_ppo.onnx --levels L1 L2 L3 L4 L5 stress --seeds test --out
+reports/arc_ppo_final.json` (268 s, on battery in Low Power Mode; distances do not depend on speed). Log
+`runs/logs/arc_ppo_final.log`. Ratios come from the cached reference `reports/planner_final.json` (L5 and stress).
+
+| | L1 | L2 | L3 | L4 | L5 | stress |
+|---|---|---|---|---|---|---|
+| arc (`reports/arc_final.json`) | 1,947 m · 93% | 2,174 m · 77% | 2,020 m · 65% | 2,070 m · 63% | 1,697 m · 43% | 832 m · 2% |
+| arc_ppo (`reports/arc_ppo_final.json`) | 1,999 m · 98% | 2,071 m · 73% | 1,996 m · 64% | 2,035 m · 66% | 1,808 m · 51% | 852 m · 3% |
+| paired difference ± 1 se | +52 ± 36 m | −103 ± 51 m | −24 ± 70 m | −35 ± 89 m | +111 ± 102 m | +20 ± 90 m |
+
+- **Ratios:** L5 TEST arc 0.885, arc_ppo 0.943; stress arc 0.978, arc_ppo 1.001. Stress drop: arc −0.105, arc_ppo
+  −0.062. G6 passes for both.
+- **Distance:** L1–L5 TEST mean 1,982 m for both. arc_ppo is ahead on L1 and L5 and behind on L2 (2 se).
+- **Crashes, L1–L5 TEST:**
+  - arc: tree 38, ceiling 31, building 24, storm 18, bird 16, pole 12, kite 11, traffic 7, ground 2 (159).
+  - arc_ppo: tree 36, building 34, storm 20, bird 16, pole 15, traffic 11, kite 10, ceiling 5, ground 1 (148).
+- **Crashes, stress:**
+  - arc: storm 26, ceiling 22, bird 13, building 13, traffic 8, tree 7, pole 5, ground 3, kite 1 (98).
+  - arc_ppo: building 25, traffic 16, tree 13, storm 11, bird 10, kite 9, pole 8, ceiling 4, ground 1 (97).
+- **Reading:** TEST agrees with VAL. arc_ppo nearly removes ceiling crashes and hits more buildings and traffic
+  drones; overall distance is a tie. The VAL excess of storm crashes (17 vs 10) did not repeat on TEST.
+- **Docs:** README (stat tile, §4.1 table and headline, G6, §4.4, the TEST rule), the model card's arc_ppo results.

@@ -1,5 +1,5 @@
 <h1 align="center">Project J'AI 2 · Reflex Drone</h1>
-<h3 align="center">arc: a System 1 pilot that flies a drone by reflex, one frame in and one move out, 30 times a second</h3>
+<h3 align="center">arc and arc_ppo: System 1 pilots that fly a drone by reflex, one frame in and one move out, 30 times a second</h3>
 
 <p align="center">
   <a href="https://medium.com/@jaiganesan"><img alt="Medium: @jaiganesan" src="https://img.shields.io/badge/Medium-@jaiganesan-000000?style=for-the-badge&logo=medium&logoColor=white"></a>
@@ -23,11 +23,16 @@
 
 <sub>arc flying the endless level on its own at 10.9–11.0 km (L5+, 12 m/s), through gusts, a speed surge, a downdraft, storm clouds, birds and a plane. The full 70-second run is <a href="#watch-the-full-run">below</a>.</sub>
 
-| **179,847** | **0.14 ms** | **93% · 43%** | **5.1 km** |
+| **179,847** | **0.14 ms** | **0.89 · 0.94** | **5.1 · 6.8 km** |
 | :---: | :---: | :---: | :---: |
-| weights in a 1 MB ONNX file | per decision on one CPU thread (p99 0.16 ms) | of L1 · L5 TEST runs fly the full 200 s | median endless run before the first crash |
+| weights per pilot, in a 1 MB ONNX file | per decision on one CPU thread (p99 0.16 ms) | L5 TEST distance ratio against the planner (arc · arc_ppo) | median endless run before the first crash (arc · arc_ppo) |
 
-DroneDash is a Chrome-Dino-style side-scroller in which a drone flies itself. Each frame, it reads its sensors and picks one of five actions: HOLD, ASCEND, DESCEND, JUMP or DUCK. The pilot, **arc**, is a 179,847-weight attention network. It learned by copying a planner that searches 1.5 s ahead, and at play time only arc runs. A person can Start, Pause/Resume or End a run, and nothing else. Everything runs on one MacBook Air: the game and pilot on the CPU, training on Apple MPS, with packages from [uv](https://docs.astral.sh/uv/).
+DroneDash is a Chrome-Dino-style side-scroller in which a drone flies itself. Each frame, it reads its sensors and picks one of five actions: HOLD, ASCEND, DESCEND, JUMP or DUCK. The pilot is a 179,847-weight attention network, trained with two methods:
+
+- **arc** is trained with **DAgger**. It learns by copying a planner that searches 1.5 s ahead, then flies on its own while the planner labels every state it reaches.
+- **arc_ppo** is arc **fine-tuned with PPO** in the game itself: the same network with new weights.
+
+Both are trained pilots, and **both fly in the game**: `--agent` picks which one. At play time only the pilot runs, never the planner. A person can Start, Pause/Resume or End a run, and nothing else. Everything runs on one MacBook Air: the game and pilot on the CPU, training on Apple MPS, with packages from [uv](https://docs.astral.sh/uv/).
 
 > [!NOTE]
 > **Objective.** Train a Type 1 decision model: fast, automatic and pattern-driven, in the sense of Kahneman's System 1. The model flies a drone through a side-scroller. Each frame, it observes the world and picks one of 5 actions with minimal latency. The goal is to survive as long as possible and fly as far as possible, using learned reflexes rather than planning.
@@ -35,9 +40,9 @@ DroneDash is a Chrome-Dino-style side-scroller in which a drone flies itself. Ea
 | Contents | |
 | --- | --- |
 | [1. What is the project?](#1-what-is-the-project) | The scenario rules, the game, the snapshot |
-| [2. Architecture](#2-architecture) | The decision model, its inputs and outputs, weight counts, and how it was trained |
+| [2. Architecture](#2-architecture) | The decision model, its inputs and outputs, weight counts, and training (DAgger, then PPO) |
 | [3. Simple maths](#3-simple-maths) | Physics, tokens, attention, the decision, the teacher, the losses, the metric |
-| [4. Results and discussion](#4-results-and-discussion) | VAL and TEST, how it flies, endless runs, the gates, arc vs arc_ppo |
+| [4. Results and discussion](#4-results-and-discussion) | VAL and TEST for both pilots, how they fly, endless runs, the gates, arc vs arc_ppo |
 | [5. How to use this repo](#5-how-to-use-this-repo) | Install, play, train, evaluate, test, use from code, layout |
 
 ---
@@ -101,7 +106,7 @@ arc flying the endless level on its own for 70 s, uncut, from 10.46 to 11.28 km 
 
 ### 2.1 The decision model
 
-arc is shown in the figure at the top. One frame becomes a **set of 20 tokens**, each 64 wide, with no position embeddings, because obstacles have no natural order:
+arc is shown in the figure at the top. arc_ppo has the same network and differs only in its weights. One frame becomes a **set of 20 tokens**, each 64 wide, with no position embeddings, because obstacles have no natural order:
 
 | Token | Input | Encoder |
 | --- | --- | --- |
@@ -133,9 +138,11 @@ Code: `models/arc.py`. Settings: `configs/train/arc.yaml`.
 | Value head (training only, not exported) | 65 |
 | **Total** | **179,847** (179,782 in `artifacts/arc.onnx`) |
 
-### 2.2 Training: System 2 teaches System 1
+### 2.2 Training: DAgger, then PPO
 
 ![Training pipeline](docs/figures/training_pipeline.png)
+
+Two training methods, one after the other. **DAgger** trains arc from the planner (System 2 teaches System 1, steps 1–5). **PPO** then fine-tunes arc by practice in the game, which gives arc_ppo (step 6). Both pilots are calibrated, exported to ONNX and flown in the game.
 
 1. **Teacher** (`teacher/planner.py`, `configs/train/teacher.yaml`). A beam search on calm copies of the game: 9 macro steps of 5 frames (1.5 s), with a beam of 2 for each first action.
    - It knows only what the pilot knows: the 20 m sensor range, and movers as the tracker's predicted band.
@@ -145,10 +152,12 @@ Code: `models/arc.py`. Settings: `configs/train/arc.yaml`.
    - Labels for each frame: soft scores, safe per action, threat, and the chosen action.
 3. **Supervised** `arc_A` (`train/supervised.py`). 15 epochs on Apple MPS, about 8 minutes.
 4. **DAgger** `arc_B` (`data/dagger.py`). 4 rounds: arc flies, the teacher labels every state it reaches, and arc retrains on all the data so far (826k frames).
-5. **Calibrate and export** (`train/calibrate.py`, `train/export_onnx.py`).
+5. **Calibrate and export arc** (`train/calibrate.py`, `train/export_onnx.py`) to `artifacts/arc.onnx`.
    - Temperature T = 0.32. Hesitation threshold τ = 0.45, shown on the HUD and never handed off.
    - ONNX logits are within 1.2e-5 of PyTorch.
-6. **Optional PPO** (`train/ppo.py`, run `arc_ppo`). 1,000 updates in the real game, anchored to arc by a KL term.
+6. **PPO fine-tuning: arc_ppo** (`train/ppo.py`, `scripts/train_arc_ppo.sh`). Starting from arc's weights, 1,000 updates of practice in the real game, anchored to arc by a KL term.
+   - The best update (560) is calibrated (T = 0.39, τ = 0.45) and exported to `artifacts/arc_ppo.onnx`.
+   - ONNX logits are within 1.1e-5 of PyTorch.
 
 | Setting | Supervised `arc_A` | DAgger `arc_B` | PPO `arc_ppo` |
 | --- | --- | --- | --- |
@@ -232,17 +241,19 @@ Mean distance, and the share of runs that fly the full 200 s. Each run is capped
 | | L1 | L2 | L3 | L4 | L5 | stress |
 | --- | --- | --- | --- | --- | --- | --- |
 | **arc, TEST** (100 unseen seeds, run once) | 1,947 m · 93% | 2,174 m · 77% | 2,020 m · 65% | 2,070 m · 63% | 1,697 m · 43% | 832 m · 2% |
+| **arc_ppo, TEST** (the same seeds, run once) | 1,999 m · 98% | 2,071 m · 73% | 1,996 m · 64% | 2,035 m · 66% | 1,808 m · 51% | 852 m · 3% |
+| arc_ppo − arc on TEST, paired, ± 1 se | +52 ± 36 m | −103 ± 51 m | −24 ± 70 m | −35 ± 89 m | +111 ± 102 m | +20 ± 90 m |
 | arc, VAL (50 seeds) | 1,922 m · 92% | 2,112 m · 80% | 2,135 m · 76% | 1,881 m · 52% | 1,818 m · 48% | |
 | arc_ppo, VAL (same 50 seeds) | 2,012 m · 98% | 2,057 m · 72% | 2,092 m · 72% | 1,866 m · 56% | 1,937 m · 60% | |
-| arc_ppo − arc, paired, ± 1 se | +91 ± 54 m | −55 ± 130 m | −43 ± 92 m | −15 ± 133 m | +120 ± 130 m | |
+| arc_ppo − arc on VAL, paired, ± 1 se | +91 ± 54 m | −55 ± 130 m | −43 ± 92 m | −15 ± 133 m | +120 ± 130 m | |
 
-**The headline result is arc's L5 TEST distance ratio: 0.89**, at an `act()` p99 of 0.16 ms.
+**The headline result is the L5 TEST distance ratio: 0.89 for arc and 0.94 for arc_ppo**, at an `act()` p99 of 0.16 ms.
 
-- **L5 TEST:** the reference planner flies 1,918 m on the same 100 seeds (57% survive); arc flies 1,697 m.
-- **Stress:** arc's ratio is 0.98. The planner also struggles there: 851 m, with 3% of runs surviving.
+- **L5 TEST:** the reference planner flies 1,918 m on the same 100 seeds (57% survive). arc flies 1,697 m and arc_ppo 1,808 m.
+- **Stress:** arc's ratio is 0.98 and arc_ppo's 1.00. The planner also struggles there: 851 m, with 3% of runs surviving.
 - **L5 VAL:** against the planner's 1,953 m (33 of 50 survive), arc's ratio is 0.93 and arc_ppo's is 0.99.
 
-### 4.2 How it flies
+### 4.2 How they fly
 
 Jai judges a pilot by how it looks in play: it should fly smoothly at a sensible height, mostly HOLD, and use slow moves first. Measured greedily on 8 VAL seeds per level:
 
@@ -265,13 +276,13 @@ The recording above is arc on another endless seed, still flying at 11.3 km.
 | G3 first reflexes | `arc_A` ratio ≥ 0.50 on L3 VAL | pass: 2,009 m, 33/50 survive (ratio 1.40 against the planner of that time) |
 | G4 corrected | `arc_B` ratio ≥ 0.75 on L5 VAL | pass: 0.93 |
 | G5 practised | final pilot's ratio ≥ 0.90 on L5 VAL | pass: arc 0.93, arc_ppo 0.99 |
-| G6 final | `act()` p99 < 1 ms; stress drop ≤ 0.20 | pass: p99 0.16 ms; stress drop −0.10 (0.98 vs 0.89) |
+| G6 final | `act()` p99 < 1 ms; stress drop ≤ 0.20 | pass for both: p99 0.16 ms; stress drop −0.10 for arc (0.98 vs 0.89) and −0.06 for arc_ppo (1.00 vs 0.94) |
 
 Ratios use the current reference: `teacher.yaml`, beam 2, replanning every 5 frames. G2 (the teacher's own gate) was checked in session 3 for the first teacher. It has not been re-run for the v2.3 teacher, which flies the full 200 s on 33 of 50 L5 VAL seeds.
 
 ### 4.4 Discussion
 
-- **The reflex is real.** One forward pass of 0.14 ms flies 89% as far as the teacher's 1.5 s search on L5 TEST (93% on VAL). On L1, 93% of TEST runs fly the full 200 s. arc never calls a planner; its look-ahead is learned.
+- **The reflex is real.** One forward pass of 0.14 ms flies 89% (arc) and 94% (arc_ppo) as far as the teacher's 1.5 s search on L5 TEST. On L1, 93% and 98% of TEST runs fly the full 200 s. Neither pilot calls a planner; the look-ahead is learned.
 - **Timing comes from the teacher.** arc starts its moves about 1.0–1.15 s before an obstacle reaches its path, close to the teacher's 1.15–1.25 s, not at the last moment. It holds 77–92% of the time and mostly uses ASCEND and DESCEND.
 - **The student copies only what it can see.** Earlier teachers knew things the pilot didn't: a bird's exact path, or obstacles beyond sensor range. Their students held where the teacher moved. The fix was to give both the same view: sensor-limited planning, and an object tracker that both of them use.
 - **Where arc fails.**
@@ -280,10 +291,10 @@ Ratios use the current reference: `teacher.yaml`, beam 2, replanning every 5 fra
   - Stress (14.4 m/s, every interruption at once) is far outside its training. Only 2% of stress runs survive.
 - **arc vs arc_ppo.**
   - PPO with a KL anchor kept arc's timing and height. It is the first PPO pilot here that did not turn late or cruise near the ceiling.
-  - It removed the ceiling crashes (0 vs 15 on VAL), cut bursts by a third and flew longer endless runs.
-  - It crashed more often into sudden storm clouds and traffic drones.
-  - Over L1–L5 VAL, mean distance is a tie (1,993 m vs 1,974 m); only the L1 gain is beyond seed noise.
-  - **arc stays the chosen pilot.** arc_ppo is kept as a try to compare against and has not been run on TEST.
+  - It nearly removed the ceiling crashes: 5 vs 31 on L1–L5 TEST, 4 vs 22 in stress, and 0 vs 15 on VAL. It also cut bursts by a third and flew longer endless runs.
+  - It crashes more often into buildings and traffic drones: 34 vs 24 and 11 vs 7 on L1–L5 TEST, and 25 vs 13 and 16 vs 8 in stress.
+  - Over L1–L5 TEST, mean distance is a tie (1,982 m each). arc_ppo is ahead on L1 and L5 (L5 ratio 0.94 vs 0.89), behind on L2 (−103 ± 51 m) and level in stress.
+  - **Both are finished pilots: both were run once on the same TEST and stress seeds, and both fly in the game.** arc_ppo is the steadier flier on long runs. arc is a little better on L2.
 
 More detail: inputs, network and training are in [reports/arc_model_card.md](reports/arc_model_card.md), and every run is in [reports/run_log.md](reports/run_log.md).
 
@@ -299,10 +310,12 @@ uv sync
 
 ### Play
 
+Both trained pilots fly in the game. Pass either ONNX file to `--agent`:
+
 ```bash
-uv run python -m app.play --agent onnx-arc:artifacts/arc.onnx                                   # arc, endless mode
+uv run python -m app.play --agent onnx-arc:artifacts/arc.onnx                                   # arc (DAgger), endless mode
+uv run python -m app.play --agent onnx-arc:artifacts/arc_ppo.onnx                               # arc_ppo (DAgger + PPO), endless mode
 uv run python -m app.play --agent onnx-arc:artifacts/arc.onnx --level L5 --seed 42 --show-attention
-uv run python -m app.play --agent onnx-arc:artifacts/arc_ppo.onnx                               # arc_ppo
 uv run python -m app.play --agent rule                                                          # hand-written test pilot
 ```
 
@@ -313,21 +326,21 @@ uv run python -m app.play --agent rule                                          
 | Q, Esc, **End** | End the run (on the summary screen: back to the title) |
 
 Flags are fixed for the whole session:
-- `--agent`: `onnx-arc:<path>`, `rule` or `random`.
+- `--agent`: `onnx-arc:<path>` (`artifacts/arc.onnx` or `artifacts/arc_ppo.onnx`), `rule` or `random`.
 - `--level`: `L1`–`L5`, `endless` (the default) or `stress`.
 - `--seed N`, `--log-frames`, `--show-attention`.
 
 Each run writes `runs/play/<time>_seed<seed>.json`, plus a per-frame CSV with `--log-frames`.
 
 > [!IMPORTANT]
-> `artifacts/`, `runs/`, `data/*/` and `reports/*.json` are git-ignored, so the trained pilots exist only on the machine that made them. On a fresh clone, run `bash scripts/train_arc.sh` first (about 1 h on AC power), or play the `rule` agent.
+> `artifacts/`, `runs/`, `data/*/` and `reports/*.json` are git-ignored, so the trained pilots exist only on the machine that made them. On a fresh clone, run `bash scripts/train_arc.sh` for arc (about 1 h on AC power), then `bash scripts/train_arc_ppo.sh` for arc_ppo (about 2.5 h), or play the `rule` agent.
 
 ### Train and evaluate
 
 ```bash
 bash scripts/smoke_pipeline.sh     # every step at toy size, about 3 min
-bash scripts/train_arc.sh          # teacher data -> supervised -> DAgger -> calibrate -> artifacts/arc.onnx -> VAL (about 1 h)
-bash scripts/train_arc_ppo.sh      # optional: PPO from arc -> artifacts/arc_ppo.onnx -> VAL (about 2.5 h on AC)
+bash scripts/train_arc.sh          # arc: teacher data -> supervised -> DAgger -> calibrate -> artifacts/arc.onnx -> VAL (about 1 h)
+bash scripts/train_arc_ppo.sh      # arc_ppo: PPO fine-tuning of arc -> calibrate -> artifacts/arc_ppo.onnx -> VAL (about 2.5 h on AC)
 
 uv run python -m eval.evaluate --agent onnx-arc:artifacts/arc.onnx --levels L1 L2 L3 L4 L5 --seeds val --out reports/arc_val.json
 uv run python -m eval.evaluate --agent planner --levels L5 --seeds val --out reports/planner_val.json      # the reference
@@ -335,7 +348,7 @@ uv run python -m eval.latency --agent onnx-arc:artifacts/arc.onnx --calls 10000 
 uv run python scripts/calibrate_tracker.py                                                                # after changing bird or drone motion
 ```
 
-- Run TEST and STRESS (`--seeds test --levels ... stress`) **once**, for the final pilot only.
+- Run TEST and STRESS (`--seeds test --levels ... stress`) **once** per finished pilot, never to pick settings. arc and arc_ppo have each had their run (`reports/arc_final.json`, `reports/arc_ppo_final.json`).
 - On a Mac, train on AC power under `caffeinate -i`. Low Power Mode makes the planner 3–10× slower and inflates latency numbers.
 - Settings: `configs/train/teacher.yaml` (the teacher and the reference), `collect.yaml`, `arc.yaml`, `dagger.yaml` and `ppo.yaml`.
 
@@ -353,7 +366,7 @@ uv run python -m app.rule_eval       # rule agent on the 50 L1 VAL seeds
 import gymnasium, drone_env
 from app.agents_base import load_agent
 
-pilot = load_agent("onnx-arc:artifacts/arc.onnx")             # or "rule", "random"
+pilot = load_agent("onnx-arc:artifacts/arc.onnx")             # or "onnx-arc:artifacts/arc_ppo.onnx", "rule", "random"
 env = gymnasium.make("DroneDash-v0", level="L3", max_frames=6_000)
 obs, info = env.reset(seed=123)
 pilot.reset(env.unwrapped.action_descriptors())

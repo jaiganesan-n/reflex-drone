@@ -96,8 +96,8 @@ The feed-forward layers are 4 × d wide. The 2 × d version (130,311 weights) fl
    - **Selection:** best round (4) by L5 VAL.
 6. **Calibrate again, export to ONNX** (parity check: logits within 1.2e-5 of PyTorch), evaluate.
 
-arc itself uses no reinforcement learning; arc_ppo (below) is arc plus PPO. At play time only the pilot runs;
-the planner is never called.
+arc is trained with DAgger and uses no reinforcement learning; arc_ppo (below) is arc fine-tuned with PPO. Both are
+trained pilots and both fly in the game. At play time only the pilot runs; the planner is never called.
 
 `scripts/train_arc.sh` runs steps 2–6.
 
@@ -152,19 +152,27 @@ the weights differ.
 - **Selection:** the best checkpoint by mean distance ratio on L1, L3 and L5 (10 VAL seeds each, every 20 updates):
   update 560. Then calibration (T 0.39, τ 0.45) and ONNX export (parity within 1.1e-5).
 
-**Results** (VAL, the same 50 seeds per level as arc):
+**Results** (the same seeds as arc; TEST and STRESS run once, 20 Oct 2026):
 
-| | L1 | L2 | L3 | L4 | L5 |
-|---|---|---|---|---|---|
-| arc_ppo | 2,012 m · 98% | 2,057 m · 72% | 2,092 m · 72% | 1,866 m · 56% | 1,937 m · 60% |
-| arc | 1,922 m · 92% | 2,112 m · 80% | 2,135 m · 76% | 1,881 m · 52% | 1,818 m · 48% |
+| | L1 | L2 | L3 | L4 | L5 | stress |
+|---|---|---|---|---|---|---|
+| arc_ppo, TEST (100 seeds) | 1,999 m · 98% | 2,071 m · 73% | 1,996 m · 64% | 2,035 m · 66% | 1,808 m · 51% | 852 m · 3% |
+| arc, TEST | 1,947 m · 93% | 2,174 m · 77% | 2,020 m · 65% | 2,070 m · 63% | 1,697 m · 43% | 832 m · 2% |
+| arc_ppo, VAL (50 seeds) | 2,012 m · 98% | 2,057 m · 72% | 2,092 m · 72% | 1,866 m · 56% | 1,937 m · 60% | |
+| arc, VAL | 1,922 m · 92% | 2,112 m · 80% | 2,135 m · 76% | 1,881 m · 52% | 1,818 m · 48% | |
 
-- **Distance:** a tie overall (mean 1,993 m vs 1,974 m). Better on L1 and L5, slightly worse on L2 and L3; only the L1
-  gain is beyond seed noise.
-- **Crashes:** no ceiling crashes (arc: 15). More storm-cloud (17 vs 10) and traffic-drone (7 vs 2) crashes.
+- **Distance:** a tie overall (L1–L5 TEST mean 1,982 m each; VAL 1,993 m vs 1,974 m). Better on L1 and L5, worse on
+  L2 (TEST −103 ± 51 m), level in stress.
+- **Distance ratio** (reference planner, same seeds): L5 TEST 0.94 (arc 0.89), stress 1.00 (arc 0.98), so the stress
+  drop is −0.06 (gate G6: ≤ 0.20). L5 VAL 0.99 (planner 1,953 m).
+- **Crashes:**
+  - Ceiling: 5 vs 31 on L1–L5 TEST, 4 vs 22 in stress, 0 vs 15 on VAL.
+  - More building and traffic-drone crashes: 34 vs 24 and 11 vs 7 on L1–L5 TEST, 25 vs 13 and 16 vs 8 in stress.
+  - Storm clouds: 17 vs 10 on VAL, but level on TEST (20 vs 18) and fewer in stress (11 vs 26).
 - **Feel:** like arc:
   - same holds and timing (moves start a median 1.0-1.13 s ahead) and same mean height;
   - a third fewer bursts (0.2 / 0.6 / 1.1 per min at L1 / L3 / L5).
 - **Endless:** median 6.8 km in 18 long runs (arc 5.1 km, same seeds); 72% pass 6 km (arc 39%).
-- **Distance ratio:** L5 VAL 0.99 (planner 1,953 m).
-- **TEST/STRESS:** not run. arc stays the chosen pilot and arc_ppo is kept as a try; TEST runs only if that changes.
+- **Latency:** `act()` p50 0.141 ms, p99 0.155 ms on AC power (gate: p99 < 1 ms).
+- **In the game:** `uv run python -m app.play --agent onnx-arc:artifacts/arc_ppo.onnx`, the same way as arc. The owner
+  played it in endless on 18 Oct 2026 (5,646 m and 5,214 m).
